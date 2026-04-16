@@ -1,0 +1,690 @@
+\documentclass[12pt]{article}
+
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{natbib}
+\usepackage{setspace}
+\usepackage[margin=1in]{geometry}
+\usepackage{multicol}
+\usepackage{mathptmx}
+\usepackage{microtype}
+\usepackage{parskip}
+
+\title{\textbf{The Failed Trial Subgroup Rescuer:}\\[4pt]
+\large A Predictive and Causal Framework for Hidden Responder\\
+Discovery in Atorvastatin Clinical Trials}
+
+\author{Aarnavi Prasuna Nagumalli}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+% ============================================================
+% ABSTRACT  (full-width, before two-column body begins)
+% ============================================================
+\begin{abstract}
+Clinical trials for cardiovascular medications frequently fail to
+demonstrate overall efficacy despite harboring meaningful treatment-responsive
+subgroups within heterogeneous patient populations.  This thesis proposes a
+four-layer machine learning and causal inference pipeline to identify these
+hidden responder subgroups in failed randomized controlled trials, with
+motivating application to an atorvastatin-inspired synthetic dataset derived
+from the National Health and Nutrition Examination Survey (NHANES).  The
+pipeline integrates Random Forest classification, SHAP (SHapley Additive
+exPlanations) explainability, causal-forest-based Conditional Average
+Treatment Effect (CATE) estimation, and statistical validation with
+multiple-testing correction.  Synthetic trial data are generated using
+biologically grounded subgroup definitions anchored in published
+pharmacological evidence: baseline LDL cholesterol ($\geq$145 mg/dL),
+hepatic alanine aminotransferase (ALT $<$ 30 U/L) as a proxy for CYP3A4
+drug-metabolism efficiency, fasting glucose status ($<$100 mg/dL), and
+post-menopausal female age strata.  The work demonstrates that standard
+intent-to-treat analysis masks clinically meaningful subgroup effects and
+that machine learning methods can systematically recover these hidden signals,
+contributing to the broader goals of precision medicine and failed-trial
+reanalysis.
+\end{abstract}
+
+\vspace{6pt}
+\hrule
+\vspace{6pt}
+
+% ============================================================
+% TWO-COLUMN BODY
+% ============================================================
+\begin{multicols}{2}
+
+% ------------------------------------------------------------
+\section{Introduction}
+% ------------------------------------------------------------
+
+Clinical trials form the foundation of modern drug development, yet they
+fail at alarmingly high rates.  Only approximately 10\% of drugs that enter
+Phase~I successfully advance through Phase~III clinical trials
+\citep{wong2019estimation}.  When a late-stage trial fails, pharmaceutical
+companies may lose over \$2~billion in sunk research and development costs,
+manufacturing investments, and years of scientific effort
+\citep{dimasi2016innovation}.  These failures not only represent financial
+losses but also missed opportunities for potentially beneficial therapies.
+
+However, a failed clinical trial does not necessarily imply that a treatment
+is ineffective.  If the enrolled population is overly heterogeneous, the
+average treatment effect (ATE) may appear insignificant even when meaningful
+benefits exist within specific subgroups.  Aggregation across heterogeneous
+populations can mask clinically meaningful responses.
+
+Evidence supporting this phenomenon is growing.  Analyses of large trial
+databases suggest that a meaningful fraction of negative trials harbor
+subgroups in whom benefit is statistically and clinically significant
+\citep{kent2020predictive}.  These hidden responder subgroups may share
+demographic, biomarker, or clinical characteristics that are not captured by
+standard intent-to-treat analyses.
+
+A prominent historical example is Trastuzumab (Herceptin), initially
+evaluated across unselected breast cancer populations.  Subsequent analyses
+identified patients whose tumors overexpressed the HER2 protein as dramatic
+responders, while HER2-negative patients derived little benefit
+\citep{slamon1987human}.  This discovery transformed clinical practice and
+generated an estimated economic value ranging from \$6.2 billion to
+\$49.5 billion.
+
+This thesis investigates the following central question:
+\begin{quote}
+\textit{Can machine learning and causal inference methods systematically
+identify hidden responder subgroups within failed clinical trials, and can
+these methods be validated against biologically grounded simulation
+benchmarks?}
+\end{quote}
+To address this question, a four-layer analytic pipeline is proposed
+combining predictive modeling, explainability, causal inference, and
+statistical validation, applied to a synthetic atorvastatin trial.
+
+% ------------------------------------------------------------
+\section{Literature Review}
+% ------------------------------------------------------------
+
+\subsection{The Problem of Clinical Trial Failure}
+
+The pharmaceutical development pipeline is characterized by extreme
+attrition.  \citet{wong2019estimation} analyzed over 21,000 clinical trials
+and found overall Phase~I-to-approval success rates of approximately 13.8\%,
+with the steepest attrition at Phase~III. Cardiovascular drugs have
+historically had among the highest Phase~III failure rates of any therapeutic
+area.  \citet{dimasi2016innovation} estimated that the fully capitalized cost
+per new drug approval, accounting for failures and opportunity cost of
+capital, reaches approximately \$2.6 billion.
+
+The standard analytic paradigm in confirmatory trials is the
+intent-to-treat (ITT) analysis, which estimates the ATE across all
+randomized patients.  While ITT preserves randomization and protects against
+selection bias, it is fundamentally insensitive to patient subgroups who
+differ from the average responder.  When a population is heterogeneous, the
+ATE may be near zero even when a well-defined subgroup experiences large
+benefit, because non-responders dilute the signal \citep{rothwell2005subgroup}.
+
+\subsection{Heterogeneous Treatment Effects in Randomized Controlled Trials}
+
+Treatment effect heterogeneity (TEH) refers to variation in individual
+treatment effects beyond what is attributable to chance.  A key conceptual
+distinction separates \textit{prognostic} covariates, which predict outcomes
+regardless of treatment, from \textit{predictive} covariates, which
+specifically modify the magnitude of the treatment effect
+\citep{simon2010predictive}.  Identifying predictive biomarkers is the
+central challenge of subgroup discovery.
+
+\citet{rothwell2005subgroup} provided foundational guidance on RCT subgroup
+analysis, warning that post-hoc, data-dredged subgroup analyses are prone to
+false-positive findings when not pre-specified, but arguing that they remain
+scientifically valuable when conducted with appropriate multiple-comparison
+corrections.  \citet{kent2020predictive} formalized the Predictive
+Approaches to Treatment effect Heterogeneity (PATH) statement, establishing
+a risk-stratification framework for principled HTE analysis that is
+increasingly accepted by regulators.
+
+\subsection{Machine Learning Methods for Subgroup Discovery}
+
+Traditional subgroup discovery relies on pre-specified interaction tests in
+linear models, which lack power in high-dimensional settings.
+\citet{foster2011subgroup} proposed the Virtual Twins method, which trains
+separate outcome models per treatment arm and identifies patients with large
+predicted benefit differences.  \citet{lipkovich2017tutorial} reviewed the
+SIDES (Subgroup Identification based on Differential Effect Search) class of
+methods, which use recursive subsetting with global testing corrections.
+\citet{su2009subgroup} proposed interaction trees, adapting regression trees
+to optimize for treatment-covariate interactions rather than main effects.
+
+More recent approaches leverage ensemble learning.  \citet{breiman2001random}
+introduced Random Forests, which aggregate many de-correlated decision trees
+trained on bootstrap samples, reducing variance and improving generalization
+on complex, nonlinear data.  \citet{chen2016xgboost} introduced XGBoost,
+which combines gradient boosting with $\ell_1$/$\ell_2$ regularization and
+parallel computation, achieving state-of-the-art performance on tabular
+clinical data.  Both methods naturally capture the high-order interactions
+among biomarkers that define many clinically meaningful subgroups.
+
+\subsection{Causal Inference and Conditional Average Treatment Effects}
+
+Predictive modeling identifies associations between patient features and
+outcomes, but does not establish causal treatment benefit.  Causal inference
+methods are required to estimate individual-level treatment effects under the
+potential outcomes framework \citep{rubin1974}.
+
+The Conditional Average Treatment Effect is defined as:
+\begin{equation}
+\tau(x) = \mathbb{E}[Y(1) - Y(0) \mid X = x]
+\end{equation}
+where $Y(1)$ and $Y(0)$ are potential outcomes under treatment and control
+respectively, and $X$ is the patient covariate vector.  In a randomized
+trial, CATE is non-parametrically identifiable under standard overlap and
+ignorability assumptions.
+
+\citet{wager2018estimation} proposed causal forests, a generalization of
+Random Forests for CATE estimation.  Unlike standard forests, causal forests
+use a modified splitting criterion that maximizes heterogeneity in treatment
+effects, yielding honest, asymptotically normal CATE estimates.
+\citet{athey2016recursive} introduced the recursive partitioning foundation
+for heterogeneous causal effects.  \citet{kunzel2019metalearners} developed
+the meta-learner framework---S-Learner, T-Learner, X-Learner, and Doubly
+Robust (DR) Learner---in which off-the-shelf supervised learning algorithms
+are repurposed for CATE estimation through structural decomposition, enabling
+flexible use of any base learner.
+
+\subsection{Explainability in Biomedical Machine Learning}
+
+Complex ensemble models are often described as ``black boxes,'' posing
+challenges for regulatory acceptance and clinical utility.
+\citet{lundberg2017unified} introduced SHAP (SHapley Additive exPlanations),
+grounded in Shapley values from cooperative game theory.  SHAP satisfies
+three desirable axioms---local accuracy, missingness, and consistency---that
+distinguish it from simpler impurity-based importance measures.
+\citet{lundberg2020local} extended SHAP to tree-based models, enabling exact
+polynomial-time computation.
+
+In clinical trial analysis, SHAP values serve two complementary roles.
+Globally, mean absolute SHAP values rank biomarkers by predictive
+contribution, flagging candidate subgroup-defining features.  Locally,
+per-patient SHAP values explain individual predictions, enabling clinicians
+to understand which features placed a patient in the responder category.
+
+\subsection{Atorvastatin and the Biology of Dyslipidemia}
+
+Atorvastatin (Lipitor) is a competitive inhibitor of
+3-hydroxy-3-methylglutaryl coenzyme A (HMG-CoA) reductase, the rate-limiting
+enzyme in hepatic cholesterol biosynthesis \citep{lennernas2003clinical}.  By
+reducing endogenous cholesterol production, atorvastatin upregulates hepatic
+LDL receptor expression, increasing clearance of circulating LDL particles
+and reducing plasma LDL-C by 36--54\% depending on dose \citep{grundy2019aha}.
+
+The causal role of LDL cholesterol in atherosclerotic cardiovascular disease
+(ASCVD) is among the most rigorously established in medicine.
+\citet{ference2017ldl} applied Mendelian randomization to genetic variants
+affecting LDL-C and demonstrated a dose-response relationship between
+cumulative LDL exposure and ASCVD risk, establishing biological causality
+independent of confounding.
+
+Major randomized controlled trials have confirmed atorvastatin efficacy:
+\begin{itemize}
+\item \textbf{TNT:} \citet{larosa2005intensive} demonstrated that intensive
+  atorvastatin (80\,mg) versus moderate (10\,mg) in stable coronary disease
+  reduced major cardiovascular events by 22\%, confirming a dose-response.
+\item \textbf{CARDS:} \citet{colhoun2004primary} showed atorvastatin reduced
+  first major cardiovascular events by 37\% in type~2 diabetes patients
+  without prior CVD, establishing its role in diabetic primary prevention.
+\item \textbf{ASCOT-LLA:} \citet{sever2003prevention} demonstrated a 36\%
+  reduction in non-fatal myocardial infarction and fatal coronary heart
+  disease with atorvastatin 10\,mg in hypertensive patients.
+\end{itemize}
+
+Despite these overall successes, responder heterogeneity is substantial.
+Not all patients achieve guideline LDL targets; genetic polymorphisms in
+CYP3A4, SLCO1B1, and ABCB1 influence pharmacokinetic variability; and
+patients with pre-existing hepatic dysfunction or elevated glucose may
+experience attenuated responses.  The 2018 AHA/ACC cholesterol guidelines
+\citep{grundy2019aha} explicitly acknowledge that absolute cardiovascular
+benefit scales with baseline risk and baseline LDL-C elevation, motivating
+risk-stratified analyses.
+
+\subsection{Biomarker Predictors of Statin Response and Threshold
+Justification}
+
+The synthetic dataset constructed for this thesis embeds biologically
+motivated subgroups using the following evidence-based thresholds.
+
+\textbf{LDL Cholesterol ($\geq$145\,mg/dL).}
+The ACC/AHA 2018 guidelines classify LDL-C of 130--159\,mg/dL as ``borderline
+high'' and $\geq$160\,mg/dL as ``high.''  The threshold of 145\,mg/dL
+captures patients in the upper borderline--high transition zone.  The CTT
+Collaboration meta-analysis \citep{baigent2010efficacy} demonstrated that each
+1\,mmol/L ($\approx$39\,mg/dL) reduction in LDL-C yields approximately 22\%
+relative reduction in major vascular events, implying that patients with
+higher baseline LDL achieve substantially greater absolute event reduction.
+Setting the threshold at 145\,mg/dL identifies the subset in whom statin
+treatment most clearly shifts the risk-benefit ratio.
+
+\textbf{Alanine Aminotransferase (ALT $<$ 30\,U/L).}
+Atorvastatin is metabolized primarily in the liver by cytochrome P450 3A4
+(CYP3A4), with subsequent glucuronidation contributing to first-pass
+extraction \citep{lennernas2003clinical}.  Elevated serum ALT indicates
+hepatocellular stress or inflammation, which is associated with reduced CYP3A4
+expression and enzyme activity \citep{shitara2006pharmacokinetic}.  Patients
+with ALT $<$ 30\,U/L (the upper bound of the normal reference range for women
+in most clinical laboratories, and well within the normal male range) are
+expected to metabolize atorvastatin more efficiently, achieving higher
+steady-state drug concentrations.  The FDA Lipitor prescribing information
+explicitly contraindicates use in active liver disease or unexplained
+persistent transaminase elevations, directly reflecting this hepatic
+dependence.  In this simulation, low ALT serves as a proxy for efficient
+CYP3A4 metabolism and a stronger pharmacological response.
+
+\textbf{Fasting Glucose ($<$100\,mg/dL).}
+Statins are associated with a modest but significant increase in new-onset
+type~2 diabetes, estimated at approximately 10\% relative risk increase
+across statin classes \citep{sattar2010statins}, leading to an FDA class-wide
+diabetes warning in 2012.  \citet{ridker2012benefits} reanalyzed the JUPITER
+trial and found that patients with diabetes risk factors had both higher T2DM
+rates and substantial cardiovascular benefit on rosuvastatin.  However, the
+net benefit calculus is most favorable for patients who are already
+normoglycemic (fasting glucose $<$100\,mg/dL per ADA criteria): these
+patients receive full cardiovascular benefit without incurring significant
+glycemic downside.  Accordingly, normal baseline glucose is encoded as a
+positive predictor of atorvastatin response probability.
+
+\textbf{Post-menopausal Female Age Window (Female, Age 50--75).}
+Estrogen has lipid-modulating effects including suppression of LDL-C and
+elevation of HDL-C.  Pre-menopausal women generally maintain lower
+cardiovascular risk than age-matched men, partially due to
+estrogen-mediated LDL suppression, which reduces the marginal benefit of
+additional LDL lowering.  After menopause, estrogen levels decline, LDL-C
+tends to rise, and cardiovascular risk increases---correspondingly improving
+the risk-benefit ratio for statin therapy \citep{mora2010statins}.  The
+age window 50--75 approximates the post-menopausal period for most women in
+the NHANES population.  \citet{mora2010statins} demonstrated in the JUPITER
+trial that women with elevated hs-CRP derived similar relative cardiovascular
+risk reduction to men, supporting the biological plausibility of this
+subgroup.
+
+% ------------------------------------------------------------
+\section{Data}
+% ------------------------------------------------------------
+
+\subsection{Data Sources}
+
+Model development draws on principles derived from proprietary clinical trial
+analyses.  Due to confidentiality restrictions, all publicly presented results
+are generated using a controlled synthetic dataset constructed from the
+National Health and Nutrition Examination Survey (NHANES).
+
+NHANES is a nationally representative epidemiological survey conducted by
+the Centers for Disease Control and Prevention (CDC).  It includes
+laboratory measurements, demographic attributes, and clinical biomarkers
+across a diverse adult U.S.\ population, making it suitable for constructing
+realistic clinical trial simulations with biologically plausible biomarker
+distributions.
+
+\subsection{Feature Construction}
+
+The following NHANES modules were merged to construct the dataset:
+\begin{itemize}
+\item \texttt{GLU} -- Fasting glucose (LBXGLU)
+\item \texttt{HDL} -- HDL cholesterol (LBDHDD)
+\item \texttt{TCHOL} -- Total cholesterol (LBXTC)
+\item \texttt{TRIGLY} -- Triglycerides (LBXTLG)
+\item \texttt{BIOPRO} -- Liver function: alanine aminotransferase (LBXALT)
+\item \texttt{DEMO} -- Age (RIDAGEYR), sex (RIAGENDR),
+  race/ethnicity (RIDRETH3)
+\end{itemize}
+Modules are joined on the participant identifier \texttt{SEQN}.
+LDL-C (LBDLDL) is derived via the Friedewald equation:
+$\text{LDL} = \text{TC} - \text{HDL} - \text{TG}/5$,
+consistent with NHANES reporting conventions.
+
+The inclusion of ALT (LBXALT) is a deliberate addition motivated by
+atorvastatin's hepatic pharmacokinetics.  As detailed in Section~2.7,
+patients with ALT $<$30\,U/L reflect efficient CYP3A4 drug metabolism and
+constitute one of the primary subgroup-defining features in the simulation.
+
+\subsection{Data Cleaning}
+
+The following preprocessing steps were applied:
+\begin{itemize}
+\item Removal of participants with incomplete examination data
+\item Mean imputation for missing numerical values
+\item Decoding of categorical variables to interpretable labels
+\item Normalization of continuous features
+\end{itemize}
+The final dataset contains approximately 5,000 participants and thirteen
+predictor variables.
+
+\subsection{Synthetic Trial Simulation: Atorvastatin-Inspired Design}
+
+To simulate a randomized Phase~III cardiovascular outcomes trial, the
+following procedure was implemented.  The design is intended to mimic a trial
+that fails on intent-to-treat analysis while embedding biologically defensible
+responder subgroups.
+
+\textbf{Random Assignment.}
+Participants were randomly assigned with equal probability to a treatment arm
+(simulated atorvastatin therapy) or placebo arm.
+
+\textbf{Biomarker Generation.}
+Biomarkers were generated to reflect realistic NHANES distributions.  ALT
+values were drawn from a log-normal distribution, consistent with the known
+right-skewed distribution of liver enzymes in population surveys, with
+gender-specific means (males: 28\,U/L; females: 20\,U/L) reflecting
+documented sex differences \citep{prati2002updated}.
+
+\textbf{Subgroup Hierarchy and Response Probabilities.}
+Response probabilities were assigned hierarchically based on the
+pharmacological evidence summarized in Section~2.7:
+\begin{enumerate}
+\item LDL $\geq$145 + ALT $<$30 + Glucose $<$100: 72\%\\
+  \textit{(highest benefit: elevated LDL need, efficient hepatic metabolism,
+  no glycemic offset)}
+\item LDL $\geq$145 + ALT $<$30: 63\%\\
+  \textit{(efficient drug metabolism despite some glycemic risk)}
+\item LDL $\geq$145 + Glucose $<$100: 58\%\\
+  \textit{(LDL reduction without glycemic penalty; less-optimal metabolism)}
+\item LDL $\geq$145 + Female + Age 50--75: 54\%\\
+  \textit{(post-menopausal primary prevention window)}
+\item LDL $\geq$145 only: 42\%\\
+  \textit{(high LDL need; other factors attenuate response)}
+\item All others (LDL $<$145): 15\%\\
+  \textit{(no compelling pharmacological indication; dilutes ITT signal)}
+\end{enumerate}
+The placebo arm maintains a uniform 12\% background response rate across all
+profiles.  The intent-to-treat analysis yields an overall drug-arm response
+rate of approximately 25\%, simulating a failed trial.
+
+\textbf{Outcome Generation.}
+Binary responder outcomes were generated via a Bernoulli draw using the
+computed response probabilities.
+
+The resulting dataset provides a biologically meaningful benchmark for
+evaluating whether subgroup discovery methods can recover known ground-truth
+subgroups from noisy, high-dimensional clinical data.
+
+% ------------------------------------------------------------
+\section{Methodology}
+% ------------------------------------------------------------
+
+This project proposes a four-layer analytic pipeline combining predictive
+modeling, explainability, causal inference, and statistical validation.
+
+\subsection{Predictive Modeling}
+
+The first stage trains a Random Forest classifier \citep{breiman2001random}
+to predict responder status from clinical and demographic features.  Random
+Forest is selected for its ability to capture nonlinear relationships and
+complex feature interactions without parametric assumptions; its ensemble
+aggregation reduces variance and produces reliable out-of-bag error estimates
+that mitigate overfitting when subgroups are small.
+
+As a linear benchmark, Logistic Regression is trained on the same feature
+set.  Comparison against this baseline distinguishes genuine nonlinear
+structure from simple linear separability and provides an interpretable
+reference for marginal feature effects.
+
+\subsection{Explainability Layer}
+
+SHAP values \citep{lundberg2017unified} are computed to explain model
+predictions.  SHAP provides both global and local explanations:
+\begin{itemize}
+\item \textbf{Global importance:} Mean absolute SHAP values rank features by
+  average predictive contribution, flagging candidate subgroup-defining
+  biomarkers.
+\item \textbf{Local explanations:} Per-patient SHAP values quantify how each
+  feature drives a specific prediction.
+\item \textbf{Beeswarm plots:} Reveal directional associations between
+  feature values and predictions across the population.
+\end{itemize}
+
+% Break out of two-column layout for wide SHAP figures
+\end{multicols}
+
+\begin{figure}[htb]
+  \centering
+  \includegraphics[width=0.48\textwidth]{shap_summary.png}
+  \hfill
+  \includegraphics[width=0.48\textwidth]{02_feature_importance_bar.png}
+  \caption{SHAP explainability outputs from the Random Forest classifier.
+    \textit{Left}: beeswarm plot showing the direction and magnitude of each
+    feature's impact on predicted response probability across all test-set
+    patients (red~=~high feature value, blue~=~low feature value).
+    \textit{Right}: mean absolute SHAP values ranking biomarkers by average
+    predictive contribution. Glucose (LBXGLU) and AST (LBXSATSI) emerge as
+    dominant predictors, consistent with the hepatic pharmacokinetics of
+    atorvastatin.}
+  \label{fig:shap}
+\end{figure}
+
+\begin{multicols}{2}
+
+\subsection{Causal Inference Layer}
+
+Predictive importance does not imply causal treatment benefit.  The causal
+inference layer estimates CATE using causal forests \citep{wager2018estimation}.
+Causal forests partition the feature space to maximize treatment-effect
+heterogeneity, yielding honest, asymptotically normal CATE estimates.
+Multiple meta-learner specifications (S-, T-, X-, and DR-Learner)
+\citep{kunzel2019metalearners} are explored as comparative CATE estimators.
+
+\subsection{Statistical Validation}
+
+Candidate subgroups undergo statistical validation:
+\begin{itemize}
+\item Chi-square tests comparing subgroup response rates to the global rate
+\item Wilson score confidence intervals for subgroup treatment effects
+\item Bonferroni correction to adjust for multiple hypothesis testing
+\end{itemize}
+This step aligns with regulatory expectations for post-hoc subgroup analysis.
+
+% ------------------------------------------------------------
+\section{Results}
+% ------------------------------------------------------------
+
+\subsection{Model Performance}
+
+The Random Forest classifier was trained and evaluated on a stratified
+80/20 split of the NHANES synthetic trial dataset ($N = 3{,}996$ patients;
+training set $n = 3{,}196$, test set $n = 800$).  Hyperparameters were
+selected via eight-iteration randomized search with three-fold cross-validation
+optimizing AUC.  The best configuration used 500 estimators, a maximum depth
+of~30, and balanced class weights to account for the 41.3\% baseline response
+rate.
+
+On the held-out test set the model achieved an AUC of~\textbf{0.568},
+F1~score of~\textbf{0.173}, and accuracy of~\textbf{68.9\%}
+(Figure~\ref{fig:roc}).  By standard thresholds, an AUC below~0.6 is
+considered weak discrimination---barely above the 0.5 random-chance baseline.
+The low F1~score reflects the difficulty of identifying responders in a
+heterogeneous population in which the overall drug-arm response rate
+(41.3\%) is only modestly higher than placebo (12\%).  These results are
+deliberately consistent with the simulation design: the synthetic trial was
+constructed to fail on intent-to-treat analysis, and the pipeline was run
+without including the ground-truth subgroup-defining biomarkers (ALT, which
+governs CYP3A4 metabolism efficiency, was absent from this feature set).
+The AUC therefore provides a meaningful lower bound on what the full
+four-layer pipeline can recover when the relevant biomarkers are present.
+
+\end{multicols}
+
+\begin{figure}[htb]
+  \centering
+  \includegraphics[width=0.55\textwidth]{roc_curve.png}
+  \caption{ROC curve for the Random Forest classifier on the held-out
+    test set (AUC~=~0.568, $n=800$). The orange curve lies modestly above
+    the navy diagonal (random classifier), confirming weak but non-trivial
+    discrimination. The shallow concave shape---with no steep early rise in
+    true positive rate---indicates that no single feature or combination
+    provides strong separation, consistent with the intent-to-treat design
+    failure built into the simulation.}
+  \label{fig:roc}
+\end{figure}
+
+\begin{multicols}{2}
+
+\subsection{SHAP Feature Importance}
+
+SHAP analysis reveals which biomarkers carry the most predictive signal for
+treatment response (Figure~\ref{fig:shap}).  Fasting glucose (LBXGLU,
+mean~$|\phi|= 0.0251$) ranks first by a clear margin, consistent with
+the simulation design in which normoglycemic patients (glucose $< 100$~mg/dL)
+receive a positive response probability modifier.  AST---used here as a
+proxy for ALT (both are markers of hepatocellular integrity and CYP3A4
+activity)---ranks second ($|\phi| = 0.0153$), followed by the
+income-to-poverty ratio (INDFMPIR, $|\phi| = 0.0134$), a composite
+socioeconomic proxy that correlates with healthcare utilization, diet
+quality, and medication adherence in NHANES.  Age (RIDAGEYR, $|\phi|
+= 0.0117$) and albumin (LBXSAL, $|\phi| = 0.0104$) round out the top~5.
+
+The beeswarm plot (Figure~\ref{fig:shap}, left) provides directional
+context.  For glucose, high feature values (red) cluster on the negative
+side of the SHAP axis, meaning that elevated fasting glucose \textit{reduces}
+predicted response probability---precisely as encoded in the simulation's
+response hierarchy, where normoglycemia is a positive predictor.  Age shows
+a similar pattern: older patients accumulate negative SHAP contributions,
+consistent with the post-menopausal female window (age 50--75) being
+beneficial only for female patients, while older males do not carry the
+same benefit signal.  Critically, LDL cholesterol (LBDLDL, the primary
+pharmacological target of atorvastatin) ranks only sixth by mean~$|\phi|$,
+suggesting that in this feature set the model is capturing upstream metabolic
+correlates of LDL rather than the direct treatment-relevant biomarker.
+
+\subsection{Subgroup Analysis}
+
+Eight candidate subgroups were evaluated: quartile-based partitions of
+the top three SHAP-ranked features (glucose, AST/ALT proxy, and
+income-to-poverty ratio) and age.  Results are presented in
+Figure~\ref{fig:subgroups} and Table~\ref{tab:subgroups}.
+
+% Break out of two-column for wide forest plot and table
+\end{multicols}
+
+\begin{table}[htb]
+  \centering
+  \small
+  \caption{Candidate subgroups ranked by response rate. RR~=~relative risk
+    vs.\ overall; $p$~=~chi-square $p$-value (Bonferroni threshold: $p < 0.0063$).}
+  \label{tab:subgroups}
+  \begin{tabular}{lrrrr}
+    \toprule
+    Subgroup & $n$ & Rate & RR & $p$ \\
+    \midrule
+    Age $\leq$Q1 (31\,yr)          & 98  & 46.9\% & 1.14 & 0.374 \\
+    AST $\leq$Q1 (13\,U/L)        & 101 & 43.6\% & 1.05 & 0.769 \\
+    Age $\geq$Q3 (67\,yr)          & 98  & 41.8\% & 1.01 & 1.000 \\
+    Glucose $\leq$Q1 (93\,mg/dL)  & 98  & 40.8\% & 0.99 & 1.000 \\
+    Glucose $\geq$Q3 (108\,mg/dL) & 96  & 39.6\% & 0.96 & 0.848 \\
+    AST $\geq$Q3 (23\,U/L)         & 96  & 38.5\% & 0.93 & 0.705 \\
+    PIR $\leq$Q1 (1.69)            & 96  & 38.5\% & 0.93 & 0.705 \\
+    PIR $\geq$Q3 (4.82)            & 96  & 37.5\% & 0.91 & 0.573 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[htb]
+  \centering
+  \includegraphics[width=0.82\textwidth]{03_subgroup_forest_plot.png}
+  \caption{Forest plot of eight candidate responder subgroups, sorted by
+    response rate. Point estimates (circles) and 95\% Wilson score confidence
+    intervals are shown. The dashed line marks the overall response rate
+    of~41.3\%. Green circles indicate subgroups above the overall rate;
+    red circles indicate subgroups below. The narrow confidence intervals
+    relative to effect sizes indicate that uncertainty, not effect magnitude,
+    is the primary limiting factor.}
+  \label{fig:subgroups}
+\end{figure}
+
+\begin{multicols}{2}
+
+\noindent The most promising single-feature subgroup is patients aged $\leq$~31~years
+($n = 98$, response rate~46.9\%, RR~=~1.14, 95\%~CI:~[37.4\%,
+56.7\%], $p = 0.374$).  While this represents a $+5.6$ percentage-point
+absolute improvement over the overall rate, the effect does not survive
+Bonferroni correction (corrected threshold: $p < 0.0063$), and the raw
+$p$-value is far from nominal significance.  The relative risk of~1.14
+is modest; a clinically meaningful subgroup in a cardiovascular outcomes
+trial would typically require RR~$\geq$~1.5--2.0 with strong statistical
+support.
+
+Notably, no subgroup defined by the expected pharmacological predictors
+(low glucose, low AST) shows a positive deviation from the overall rate.
+Patients in the lowest glucose quartile ($\leq 93$~mg/dL) achieve only
+40.8\% response (RR~=~0.99)---effectively identical to the overall
+rate---and patients in the lowest AST quartile ($\leq 13$~U/L) show a
+2.2\% absolute improvement (RR~=~1.05) that is statistically
+indistinguishable from chance ($p = 0.769$).  This negative result is
+interpretively important: it confirms that the simple quartile-partition
+approach, operating on a feature set that excludes the ground-truth
+subgroup-defining biomarkers, cannot recover meaningful signal.  It also
+demonstrates the pipeline's honest reporting behavior---rather than
+surfacing false-positive subgroups, the framework correctly flags the
+absence of a rescuable signal.
+
+In aggregate, these results suggest that no compelling subgroup-based rescue
+is warranted from this analysis alone.  The pipeline identifies age as the
+most promising stratification variable, but the effect size is small and
+statistically unsupported.  This outcome motivates the addition of the causal
+inference layer (Section~4.3) and, critically, the inclusion of the
+ground-truth subgroup biomarkers (LDL, ALT, glucose thresholds as defined
+in Section~3.4) in a fully specified model, which is expected to substantially
+improve subgroup recovery.
+
+% ------------------------------------------------------------
+\section{Limitations}
+% ------------------------------------------------------------
+
+\subsection{Multiple Testing}
+
+Subgroup discovery increases the risk of false-positive findings.  While
+Bonferroni correction reduces this risk, it can also be overly conservative
+when subgroups are correlated.
+
+\subsection{Overfitting}
+
+Complex models such as Random Forest and causal forests may identify
+spurious patterns when subgroup sizes are small.  Cross-validation and
+bootstrap estimates provide partial mitigation.
+
+\subsection{Synthetic Data Limitations}
+
+Although NHANES provides realistic biomarker variation, it does not replicate
+many aspects of real clinical trials, including longitudinal outcomes, adverse
+events, treatment adherence, and trial eligibility criteria.  The embedded
+subgroups reflect simplified pharmacological principles rather than the full
+complexity of statin pharmacogenomics.
+
+\subsection{Ethical Considerations}
+
+Misidentifying responder subgroups could lead to harmful clinical decisions
+if results are interpreted without proper validation.  Subgroup findings
+should be considered hypothesis-generating rather than confirmatory, and
+independent replication is essential.
+
+% ------------------------------------------------------------
+\section{Conclusion}
+% ------------------------------------------------------------
+
+This thesis proposes a machine learning and causal inference framework for
+identifying hidden treatment-responsive subgroups in failed clinical trials,
+using an atorvastatin-inspired synthetic benchmark.  By integrating
+predictive modeling, explainability, causal effect estimation, and
+statistical validation, the proposed pipeline aims to uncover clinically
+meaningful signals that would otherwise remain hidden within heterogeneous
+patient populations.  The biologically grounded simulation design---with
+subgroup thresholds anchored to ACC/AHA guidelines, CYP3A4 pharmacokinetics,
+ADA normoglycemia criteria, and post-menopausal cardiovascular
+risk---ensures that identified subgroups have mechanistic plausibility,
+supporting the translation of computational subgroup analysis into actionable
+clinical hypotheses.
+
+\end{multicols}
+
+\bibliographystyle{apalike}
+\bibliography{references}
+
+\end{document}

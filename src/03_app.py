@@ -389,7 +389,7 @@ Use clear sections with bullet points. Prioritize scientific integrity over opti
 
                         client = anthropic.Anthropic(api_key=anthropic_api_key)
                         message = client.messages.create(
-                            model="claude-sonnet-4-20250514",
+                            model="claude-3-7-sonnet-20250219",
                             max_tokens=3000,  # Increased for comprehensive stakeholder analysis
                             messages=[{"role": "user", "content": prompt}]
                         )
@@ -633,7 +633,7 @@ Create a table comparing:
 
                         client = anthropic.Anthropic(api_key=anthropic_api_key)
                         message = client.messages.create(
-                            model="claude-sonnet-4-20250514",
+                            model="claude-3-7-sonnet-20250219",
                             max_tokens=4000,
                             messages=[{"role": "user", "content": prompt}]
                         )
