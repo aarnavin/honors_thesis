@@ -1,0 +1,8 @@
+run_id,timestamp,model,learner,n_train,n_test,auc,f1,accuracy,precision,recall,mean_cate_treated,pehe,best_subgroup_rr,best_subgroup_n,best_subgroup_label,n_significant_subgroups,note
+1,2026-04-28 11:43,lr,s,4000,1000,0.8667,0.4726,0.75,0.3314,0.8235,0.3079,0.3311,0.3053,357,CATE>=0.25,0,baseline linear
+2,2026-04-28 11:43,rf,t,4000,1000,0.8678,0.7536,0.932,0.7429,0.7647,0.2132,0.0866,0.7394,142,CATE>=0.25,5,ensemble T-learner
+3,2026-04-28 11:44,xgb,x,4000,1000,0.873,0.7356,0.931,0.768,0.7059,0.2343,0.094,0.7465,142,CATE>=0.20,5,gradient boost X-learner
+4,2026-04-28 11:44,xgb,dr,4000,1000,0.873,0.7356,0.931,0.768,0.7059,0.2284,0.1099,0.7554,139,CATE>=0.25,5,gradient boost DR-learner
+5,2026-04-28 11:44,rf,dr,4000,1000,0.8678,0.7536,0.932,0.7429,0.7647,0.2188,0.0887,0.7609,138,CATE>=0.25,5,ensemble DR-learner
+6,2026-04-28 11:44,rf,x,4000,1000,0.8678,0.7536,0.932,0.7429,0.7647,0.2155,0.0715,0.7447,141,CATE>=0.20,5,ensemble X-learner
+7,2026-04-28 11:45,lr,t,4000,1000,0.8667,0.4726,0.75,0.3314,0.8235,-0.0887,0.3703,0.7182,110,CATE>=0.25,5,linear T-learner

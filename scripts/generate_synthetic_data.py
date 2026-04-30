@@ -37,13 +37,13 @@ def generate_synthetic_trial_data(n_patients=5000):
     Generate synthetic atorvastatin trial with hidden responder subgroups.
 
     Ground truth subgroup hierarchy (biologically grounded):
-      1. LDL >= 145 + ALT < 30 + Glucose < 100  →  72% response (triple positive)
-      2. LDL >= 145 + ALT < 30                   →  63% response
-      3. LDL >= 145 + Glucose < 100              →  58% response
-      4. LDL >= 145 + Female + Age 50-75         →  54% response (post-menopausal)
-      5. LDL >= 145 (alone)                      →  42% response
-      6. All others (LDL < 145)                  →  15% response  ← trial "fails"
-      Placebo arm (all profiles)                 →  12% background
+      1. LDL >= 145 + ALT < 30 + Glucose < 100  ->  88% response (triple positive)
+      2. LDL >= 145 + ALT < 30                   ->  78% response
+      3. LDL >= 145 + Glucose < 100              ->  73% response
+      4. LDL >= 145 + Female + Age 50-75         ->  68% response (post-menopausal)
+      5. LDL >= 145 (alone)                      ->  55% response
+      6. All others (LDL < 145)                  ->   5% response  <- trial "fails"
+      Placebo arm (all profiles)                 ->   4% background
 
     The intent-to-treat analysis yields ~25% overall response, appearing as a
     failed trial. Hidden subgroups contain 54-72% responders.
@@ -105,32 +105,32 @@ def generate_synthetic_trial_data(n_patients=5000):
         # GROUND TRUTH: Atorvastatin responder subgroup hierarchy
         # Each threshold is justified by published pharmacology (see module docstring)
         # ------------------------------------------------------------------ #
-        base_response_prob = 0.15
+        base_response_prob = 0.05   # Strengthened: non-responder floor reduced to 5%
 
         if treatment == 1:
             if ldl >= 145 and alt < 30 and glucose < 100:
                 # Triple positive: elevated LDL need + efficient hepatic metabolism
-                # + no glycemic offset → strongest benefit
-                response_prob = 0.72
+                # + no glycemic offset -> strongest benefit
+                response_prob = 0.88
             elif ldl >= 145 and alt < 30:
                 # High LDL + efficient CYP3A4 metabolism; some glycemic risk present
-                response_prob = 0.63
+                response_prob = 0.78
             elif ldl >= 145 and glucose < 100:
                 # High LDL + no glycemic offset; less-optimal hepatic metabolism
-                response_prob = 0.58
+                response_prob = 0.73
             elif ldl >= 145 and gender == 2 and 50 <= age <= 75:
                 # High LDL + post-menopausal primary prevention window
-                response_prob = 0.54
+                response_prob = 0.68
             elif ldl >= 145:
                 # High LDL alone; benefit attenuated by other factors
-                response_prob = 0.42
+                response_prob = 0.55
             else:
                 # LDL < 145: no compelling pharmacological indication;
                 # minimal marginal benefit (dilutes overall trial signal)
                 response_prob = base_response_prob
         else:
             # Placebo arm: uniformly low background response
-            response_prob = base_response_prob * 0.80
+            response_prob = 0.04  # Strengthened: placebo floor at 4%
 
         # Binary outcome via Bernoulli draw
         responded = np.random.binomial(1, response_prob)
@@ -216,21 +216,21 @@ def generate_synthetic_trial_data(n_patients=5000):
     m_low_ldl = drug_df['LBDLDL'] < 145
 
     for label, mask, expected_rr in [
-        ("1. LDL>=145 + ALT<30 + Glucose<100  (triple positive)", m_triple,   "~72%"),
-        ("2. LDL>=145 + ALT<30                (liver efficient)", m_ldl_alt,  "~63%"),
-        ("3. LDL>=145 + Glucose<100           (non-diabetic)",    m_ldl_glu,  "~58%"),
-        ("4. LDL>=145 + Female age 50-75      (post-menopausal)", m_postmeno, "~54%"),
-        ("5. LDL>=145 only                    (moderate benefit)",m_ldl_only, "~42%"),
-        ("6. LDL<145                          (no indication)",   m_low_ldl,  "~15%"),
+        ("1. LDL>=145 + ALT<30 + Glucose<100  (triple positive)", m_triple,   "~88%"),
+        ("2. LDL>=145 + ALT<30                (liver efficient)", m_ldl_alt,  "~78%"),
+        ("3. LDL>=145 + Glucose<100           (non-diabetic)",    m_ldl_glu,  "~73%"),
+        ("4. LDL>=145 + Female age 50-75      (post-menopausal)", m_postmeno, "~68%"),
+        ("5. LDL>=145 only                    (moderate benefit)",m_ldl_only, "~55%"),
+        ("6. LDL<145                          (no indication)",   m_low_ldl,   "~5%"),
     ]:
         sg = drug_df[mask]
         observed = f"{sg['Responded'].mean():.1%}" if len(sg) > 0 else "N/A"
         print(f"\n  {label}")
-        print(f"     N = {len(sg):4d}  |  Observed RR = {observed}  |  Expected ≈ {expected_rr}")
+        print(f"     N = {len(sg):4d}  |  Observed RR = {observed}  |  Expected ~{expected_rr}")
 
     print("\n" + "=" * 65)
     print("Threshold justifications:")
-    print("  LDL >= 145 mg/dL : ACC/AHA 'borderline high→high' transition;")
+    print("  LDL >= 145 mg/dL : ACC/AHA 'borderline high->high' transition;")
     print("                     greatest absolute CVD risk reduction per CTT 2010")
     print("  ALT < 30 U/L     : Normal hepatic function; efficient CYP3A4")
     print("                     atorvastatin metabolism (Lennernas 2003)")
